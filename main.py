@@ -9,7 +9,7 @@ import telebot
 from telebot import types
 
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("street_life")
+log = logging.getLogger("makeup_and_care")
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
@@ -202,14 +202,14 @@ def cmd_start(message: types.Message):
     if not BASE_URL:
         bot.send_message(
             message.chat.id,
-            "STREET LIFE: мини-апп ещё не сконфигурирован (не задан WEBHOOK_URL)."
+            "Makeup&Care: мини-апп ещё не сконфигурирован (не задан WEBHOOK_URL)."
         )
         return
 
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(
         types.InlineKeyboardButton(
-            text="👑 Открыть STREET LIFE",
+            text="💄 Открыть Makeup&Care",
             web_app=types.WebAppInfo(url=BASE_URL + "/")
         )
     )
@@ -225,10 +225,10 @@ def cmd_start(message: types.Message):
 
     bot.send_message(
         message.chat.id,
-        "👑 *STREET LIFE — Streetwear Store*\n\n"
-        "Добро пожаловать в STREET LIFE! Кроссовки, худи, футболки, кепки и "
-        "аксессуары для уличного стиля.\n\n"
-        "Нажмите кнопку ниже, чтобы открыть каталог товаров, проверить наличие и оформить заказ.",
+        "💄 *Makeup&Care — Beauty Store*\n\n"
+        "Добро пожаловать в Makeup&Care! Оригинальная косметика и уход из США "
+        "и Европы: редкие позиции, новинки и возможность индивидуального заказа.\n\n"
+        "Нажмите кнопку ниже, чтобы открыть каталог, проверить наличие и оформить заказ.",
         reply_markup=keyboard,
         parse_mode="Markdown",
     )
@@ -332,7 +332,7 @@ def create_order():
             bot.send_message(
                 customer_chat_id,
                 "✅ Заказ оформлен!\n\n"
-                f"Номер заказа: SL-{new_id}\n"
+                f"Номер заказа: MC-{new_id}\n"
                 f"{items_lines}\n\n"
                 f"{discount_line}"
                 f"Итого: {fmt_price(total)}\n\n"
@@ -343,7 +343,7 @@ def create_order():
             log.warning("Не удалось отправить подтверждение покупателю: %s", e)
 
     admin_text = (
-        f"🛒 Новый заказ SL-{new_id}\n\n"
+        f"🛒 Новый заказ MC-{new_id}\n\n"
         f"Клиент: {name}\n"
         f"Телефон: {phone}\n"
         + (f"Telegram: @{customer_username}\n" if customer_username else "")
@@ -432,7 +432,7 @@ def customer_cancel_order(oid):
 
     for admin_id in ADMIN_CHAT_IDS:
         try:
-            bot.send_message(admin_id, f"❌ Клиент отменил заказ SL-{oid}")
+            bot.send_message(admin_id, f"❌ Клиент отменил заказ MC-{oid}")
         except Exception as e:
             log.warning("Не удалось уведомить администратора %s: %s", admin_id, e)
 
@@ -774,7 +774,7 @@ def admin_message_customer(oid):
     try:
         bot.send_message(
             chat_id,
-            f"💬 Сообщение от STREET LIFE по заказу SL-{oid}:\n\n{text}"
+            f"💬 Сообщение от Makeup&Care по заказу MC-{oid}:\n\n{text}"
         )
     except Exception as e:
         abort(400, description=f"Не удалось отправить сообщение: {e}")
@@ -817,7 +817,7 @@ def admin_message_question(qid):
     try:
         bot.send_message(
             chat_id,
-            f"💬 Ответ от STREET LIFE по товару «{q.get('product_name','')}»:\n\n{text}"
+            f"💬 Ответ от Makeup&Care по товару «{q.get('product_name','')}»:\n\n{text}"
         )
     except Exception as e:
         abort(400, description=f"Не удалось отправить ответ: {e}")

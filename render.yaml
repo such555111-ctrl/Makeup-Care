@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: street-life-bot
+    name: makeup-and-care-bot
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
@@ -17,6 +17,6 @@ services:
     # Опционально: платный постоянный диск, чтобы товары и загруженные фото
     # не пропадали при рестарте/редеплое (см. README, раздел "Постоянное хранилище").
     # disk:
-    #   name: street-life-data
+    #   name: makeup-and-care-data
     #   mountPath: /opt/render/project/src
     #   sizeGB: 1
