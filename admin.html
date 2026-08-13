@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500;1,600&family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root{
     --bg-primary:#FAF6F7;
@@ -522,6 +523,14 @@
 <div class="toast-stack" id="toastStack"></div>
 
 <script>
+const tg = window.Telegram?.WebApp;
+if (tg) {
+  tg.ready(); tg.expand();
+  try{ tg.setBackgroundColor('#FAF6F7'); }catch(e){}
+  try{ tg.setHeaderColor('#FAF6F7'); }catch(e){}
+  try{ tg.setBottomBarColor('#FAF6F7'); }catch(e){}
+}
+
 const SWATCHES = [
   'linear-gradient(155deg,#FBEAF0,#E9C3D2 130%)',
   'linear-gradient(155deg,#FCEFF3,#EED0DC 130%)',

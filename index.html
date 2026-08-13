@@ -608,7 +608,13 @@
 
 <script>
 const tg = window.Telegram?.WebApp;
-if (tg) { tg.ready(); tg.expand(); try{ tg.setBackgroundColor('#FAF6F7'); tg.setHeaderColor('#FAF6F7'); tg.MainButton.hide(); }catch(e){} }
+if (tg) {
+  tg.ready(); tg.expand();
+  try{ tg.setBackgroundColor('#FAF6F7'); }catch(e){}
+  try{ tg.setHeaderColor('#FAF6F7'); }catch(e){}
+  try{ tg.setBottomBarColor('#FAF6F7'); }catch(e){}
+  try{ tg.MainButton.hide(); }catch(e){}
+}
 
 const SWATCHES = [
   'linear-gradient(155deg,#FBEAF0,#E9C3D2 130%)',
