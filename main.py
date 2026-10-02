@@ -1,5 +1,10 @@
 import os
+import json
+import time
+import hashlib
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from flask import Flask, request, send_from_directory, abort, jsonify
@@ -7,6 +12,11 @@ import telebot
 from telebot import types
 import cloudinary
 import cloudinary.uploader
+
+try:
+    from flask_compress import Compress
+except ImportError:  # сжатие необязательно, но сильно ускоряет загрузку
+    Compress = None
 
 import db  # Neon (PostgreSQL): товары, заказы, вопросы, промокоды
 
@@ -60,6 +70,50 @@ ALLOWED_PROMO_TYPES = {"percent", "fixed"}
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # 8 МБ на файл
+app.config["COMPRESS_MIMETYPES"] = ["text/html", "text/css", "application/json", "application/javascript"]
+app.config["COMPRESS_MIN_SIZE"] = 500
+if Compress:
+    Compress(app)
+
+# Отправка сообщений в Telegram — в фоне, чтобы заказ/вопрос не ждали ответа Telegram API
+_bg = ThreadPoolExecutor(max_workers=4, thread_name_prefix="tg-send")
+
+
+def _safe_send(chat_id, text, what="сообщение"):
+    try:
+        bot.send_message(chat_id, text)
+    except Exception as e:
+        log.warning("Не удалось отправить %s (%s): %s", what, chat_id, e)
+
+
+def send_async(chat_id, text, what="сообщение"):
+    _bg.submit(_safe_send, chat_id, text, what)
+
+
+# Кэш каталога в памяти: products.json читается из БД не чаще раза в CATALOG_TTL секунд
+CATALOG_TTL = int(os.environ.get("CATALOG_TTL", "30"))
+_catalog = {"body": None, "etag": None, "at": 0.0}
+_catalog_lock = threading.Lock()
+
+
+def invalidate_catalog():
+    with _catalog_lock:
+        _catalog["body"] = None
+        _catalog["at"] = 0.0
+
+
+def get_catalog():
+    now = time.time()
+    if _catalog["body"] is not None and now - _catalog["at"] < CATALOG_TTL:
+        return _catalog["body"], _catalog["etag"]
+    with _catalog_lock:
+        if _catalog["body"] is not None and time.time() - _catalog["at"] < CATALOG_TTL:
+            return _catalog["body"], _catalog["etag"]
+        body = json.dumps(db.fetch("products"), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        _catalog["body"] = body
+        _catalog["etag"] = '"' + hashlib.md5(body).hexdigest() + '"'
+        _catalog["at"] = time.time()
+        return body, _catalog["etag"]
 
 
 # --- Вспомогательные функции для товаров и авторизации админа -----------
@@ -203,13 +257,21 @@ def fallback(message: types.Message):
 
 @app.route("/", methods=["GET"])
 def index():
-    return send_from_directory(APP_DIR, "index.html")
+    resp = send_from_directory(APP_DIR, "index.html", max_age=0, conditional=True)
+    resp.headers["Cache-Control"] = "no-cache"  # браузер проверяет ETag и получает 304 без загрузки файла
+    return resp
 
 
 @app.route("/products.json", methods=["GET"])
 def products():
-    resp = jsonify(db.fetch("products"))
-    resp.headers["Cache-Control"] = "no-cache"
+    body, etag = get_catalog()
+    if request.headers.get("If-None-Match") == etag:
+        resp = app.response_class(status=304)
+    else:
+        resp = app.response_class(body, mimetype="application/json")
+    resp.headers["ETag"] = etag
+    # короткий кэш + показ устаревшего, пока обновляется в фоне
+    resp.headers["Cache-Control"] = "public, max-age=20, stale-while-revalidate=300"
     return resp
 
 
@@ -279,19 +341,17 @@ def create_order():
         )
 
     if customer_chat_id:
-        try:
-            bot.send_message(
-                customer_chat_id,
-                "✅ Заказ оформлен!\n\n"
-                f"Номер заказа: MC-{new_id}\n"
-                f"{items_lines}\n\n"
-                f"{discount_line}"
-                f"Итого: {fmt_price(total)}\n\n"
-                "Мы свяжемся с вами в этом чате, чтобы подтвердить заказ и "
-                "обсудить доставку."
-            )
-        except Exception as e:
-            log.warning("Не удалось отправить подтверждение покупателю: %s", e)
+        send_async(
+            customer_chat_id,
+            "✅ Заказ оформлен!\n\n"
+            f"Номер заказа: MC-{new_id}\n"
+            f"{items_lines}\n\n"
+            f"{discount_line}"
+            f"Итого: {fmt_price(total)}\n\n"
+            "Мы свяжемся с вами в этом чате, чтобы подтвердить заказ и "
+            "обсудить доставку.",
+            "подтверждение заказа",
+        )
 
     admin_text = (
         f"🛒 Новый заказ MC-{new_id}\n\n"
@@ -306,10 +366,7 @@ def create_order():
           "написать клиенту и обсудить доставку."
     )
     for admin_id in ADMIN_CHAT_IDS:
-        try:
-            bot.send_message(admin_id, admin_text)
-        except Exception as e:
-            log.warning("Не удалось уведомить администратора %s: %s", admin_id, e)
+        send_async(admin_id, admin_text, "уведомление админу")
 
     return jsonify({"ok": True, "order_id": new_id}), 201
 
@@ -378,10 +435,7 @@ def customer_cancel_order(oid):
     order = db.update("orders", oid, {"status": "cancelled"})
 
     for admin_id in ADMIN_CHAT_IDS:
-        try:
-            bot.send_message(admin_id, f"❌ Клиент отменил заказ MC-{oid}")
-        except Exception as e:
-            log.warning("Не удалось уведомить администратора %s: %s", admin_id, e)
+        send_async(admin_id, f"❌ Клиент отменил заказ MC-{oid}", "уведомление об отмене")
 
     return jsonify(order)
 
@@ -418,16 +472,14 @@ def create_question():
     new_id = entry["id"]
 
     if customer_chat_id:
-        try:
-            bot.send_message(
-                customer_chat_id,
-                "✅ Ваш вопрос отправлен администратору.\n\n"
-                f"Товар: {product_name}\n"
-                f"Вопрос: {question}\n\n"
-                "Мы ответим вам в этом чате."
-            )
-        except Exception as e:
-            log.warning("Не удалось отправить подтверждение по вопросу: %s", e)
+        send_async(
+            customer_chat_id,
+            "✅ Ваш вопрос отправлен администратору.\n\n"
+            f"Товар: {product_name}\n"
+            f"Вопрос: {question}\n\n"
+            "Мы ответим вам в этом чате.",
+            "подтверждение вопроса",
+        )
 
     admin_text = (
         f"❓ Новый вопрос по товару «{product_name}»\n\n"
@@ -436,10 +488,7 @@ def create_question():
         "Откройте панель администратора (вкладка «Вопросы»), чтобы ответить клиенту."
     )
     for admin_id in ADMIN_CHAT_IDS:
-        try:
-            bot.send_message(admin_id, admin_text)
-        except Exception as e:
-            log.warning("Не удалось уведомить администратора %s: %s", admin_id, e)
+        send_async(admin_id, admin_text, "уведомление админу")
 
     return jsonify({"ok": True, "question_id": new_id}), 201
 
@@ -491,6 +540,7 @@ def admin_create_product():
         "images": images,
         "image": images[0] if images else None,
     })
+    invalidate_catalog()
     return jsonify(product), 201
 
 
@@ -531,7 +581,9 @@ def admin_update_product(pid):
         images = sanitize_images(data.get("image"))
         upd["images"] = images
         upd["image"] = images[0] if images else None
-    return jsonify(db.update("products", pid, upd))
+    result = db.update("products", pid, upd)
+    invalidate_catalog()
+    return jsonify(result)
 
 
 @app.route("/api/admin/products/<int:pid>", methods=["DELETE"])
@@ -539,6 +591,7 @@ def admin_delete_product(pid):
     require_admin()
     if not db.delete("products", pid):
         abort(404, description="Товар не найден")
+    invalidate_catalog()
     return jsonify({"ok": True})
 
 
@@ -773,8 +826,13 @@ def setup_webhook():
         log.warning("WEBHOOK_URL / RENDER_EXTERNAL_URL не заданы — вебхук не установлен.")
         return
     url = f"{BASE_URL}/webhook/{BOT_TOKEN}"
-    bot.remove_webhook()
-    bot.set_webhook(url=url)
+    try:
+        if bot.get_webhook_info().url == url:
+            log.info("Webhook уже установлен: %s", url)
+            return
+    except Exception as e:
+        log.warning("Не удалось проверить вебхук: %s", e)
+    bot.set_webhook(url=url, max_connections=20, drop_pending_updates=False)
     log.info("Webhook установлен: %s", url)
 
 

@@ -9,6 +9,7 @@ import contextlib
 
 import psycopg2
 import psycopg2.extras
+import psycopg2.extensions
 from psycopg2.extras import Json, RealDictCursor
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -77,18 +78,69 @@ CREATE TABLE IF NOT EXISTS promos (
 COLUMN_MAP = {"products": {"desc": "description"}}
 
 
+# Пул соединений. Раньше на КАЖДЫЙ запрос открывалось новое SSL-соединение с Neon
+# (+200–500 мс, а после «сна» базы — секунды). Теперь соединения переиспользуются.
+# Пул создаётся лениво и отдельно в каждом процессе gunicorn (важно при --preload).
+import threading
+from psycopg2 import pool as _pgpool
+
+_pool = None
+_pool_pid = None
+_pool_lock = threading.Lock()
+
+
+def _get_pool():
+    global _pool, _pool_pid
+    pid = os.getpid()
+    if _pool is None or _pool_pid != pid:
+        with _pool_lock:
+            if _pool is None or _pool_pid != pid:
+                _pool = _pgpool.ThreadedConnectionPool(
+                    1, int(os.environ.get("DB_POOL_MAX", "8")), DATABASE_URL,
+                    cursor_factory=RealDictCursor, connect_timeout=15,
+                    keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3,
+                )
+                _pool_pid = pid
+    return _pool
+
+
 @contextlib.contextmanager
 def conn():
-    # Neon усыпляет неактивные соединения, поэтому открываем соединение на запрос.
-    c = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor, connect_timeout=15)
+    p = _get_pool()
+    c = p.getconn()
+    # Neon усыпляет/обрывает простаивающие соединения — проверяем и при необходимости переподключаемся
+    try:
+        if c.closed:
+            raise psycopg2.OperationalError("closed")
+        if c.get_transaction_status() != psycopg2.extensions.TRANSACTION_STATUS_IDLE:
+            c.rollback()
+        with c.cursor() as cur:
+            cur.execute("SELECT 1")
+        c.rollback()
+    except Exception:
+        try:
+            p.putconn(c, close=True)
+        except Exception:
+            pass
+        c = p.getconn()
+    broken = False
     try:
         yield c
         c.commit()
+    except psycopg2.OperationalError:
+        broken = True
+        raise
     except Exception:
-        c.rollback()
+        try:
+            c.rollback()
+        except Exception:
+            broken = True
         raise
     finally:
-        c.close()
+        try:
+            p.putconn(c, close=broken or bool(c.closed))
+        except Exception:
+            pass
 
 
 def init_db():
