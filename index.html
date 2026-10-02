@@ -356,7 +356,27 @@
     .chip:hover:not(.active){color:var(--text);border-color:var(--muted-dim);}
     .card-like:hover:not(.active){border-color:var(--accent);}
   }
-</style></style>
+
+  /* --- поиск по каталогу --- */
+  .search-row{padding:16px 20px 0;}
+  .search-box{position:relative;display:flex;align-items:center;height:48px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.85);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);box-shadow:0 6px 22px rgba(162,91,116,.07);transition:border-color .25s var(--ease),box-shadow .25s var(--ease),background .25s var(--ease);}
+  .search-box:focus-within{border-color:var(--accent);background:#fff;box-shadow:0 0 0 4px var(--accent-dim),0 10px 28px rgba(162,91,116,.14);}
+  .search-ico{position:absolute;left:17px;width:18px;height:18px;color:var(--muted-dim);pointer-events:none;transition:color .25s var(--ease),transform .35s var(--ease-spring);}
+  .search-box:focus-within .search-ico{color:var(--accent);transform:scale(1.1);}
+  .search-input{flex:1;min-width:0;height:100%;border:none;outline:none;background:transparent;padding:0 46px 0 46px;font-family:var(--font-body);font-size:15px;color:var(--text);-webkit-appearance:none;appearance:none;}
+  .search-input::placeholder{color:var(--muted-dim);}
+  .search-input::-webkit-search-cancel-button,.search-input::-webkit-search-decoration{-webkit-appearance:none;display:none;}
+  .search-clear{position:absolute;right:9px;width:30px;height:30px;border-radius:50%;border:none;background:var(--accent-dim);color:var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transform:scale(.6);pointer-events:none;transition:all .25s var(--ease-spring);}
+  .search-clear.show{opacity:1;transform:scale(1);pointer-events:auto;}
+  .search-clear:active{transform:scale(.88);}
+  .search-meta{padding:10px 24px 0;font-size:12px;color:var(--muted);min-height:0;display:none;}
+  .search-meta.show{display:block;animation:fadeUp .3s var(--ease);}
+  .search-meta b{color:var(--accent);font-weight:600;}
+  mark.hl{background:linear-gradient(transparent 55%,rgba(200,142,167,.45) 55%);color:inherit;padding:0 1px;border-radius:2px;}
+  .empty-state .es-btn{margin-top:18px;border:1px solid var(--accent);background:var(--accent-dim);color:var(--accent);border-radius:999px;padding:10px 20px;font-family:var(--font-heading);font-weight:700;font-size:11px;letter-spacing:.03em;text-transform:uppercase;cursor:pointer;transition:all .25s var(--ease);}
+  .empty-state .es-btn:active{transform:scale(.94);}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+</style>
 </head>
 <body>
 <div class="orb orb-1"></div>
@@ -407,6 +427,17 @@
   <div class="ticker-wrap">
     <div class="ticker" id="ticker"></div>
   </div>
+
+  <div class="search-row">
+    <div class="search-box">
+      <svg class="search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input type="search" id="searchInput" class="search-input" placeholder="Найти товар…" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" aria-label="Поиск по каталогу">
+      <button type="button" class="search-clear" id="searchClear" aria-label="Очистить поиск">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="search-meta" id="searchMeta"></div>
 
   <div class="filters-row">
     <div class="filters" id="filters"></div>
@@ -640,6 +671,7 @@ let promoFormOpen = false;
 let activeCategory = 'Все';
 let currentProduct = null;
 let sortMode = 'default';
+let searchQuery = '';
 
 // --- избранное (хранится локально на устройстве) -----------------------
 function loadFavorites(){
@@ -751,6 +783,42 @@ const emptyStateHTML = `
     <div>В этой категории пока нет товаров</div>
   </div>`;
 
+// --- поиск: нормализация (регистр, ё/е), разбивка на слова --------------
+const normText = t => String(t || '').toLowerCase().replace(/ё/g, 'е').trim();
+const escHTML = t => String(t).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const escRe = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function matchesSearch(p){
+  const words = normText(searchQuery).split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const hay = normText([p.name, p.category, p.desc].join(' '));
+  return words.every(w => hay.includes(w));
+}
+
+function highlight(text){
+  const words = normText(searchQuery).split(/\s+/).filter(Boolean);
+  text = String(text);
+  if (!words.length) return escHTML(text);
+  // ё/е: подсвечиваем оба варианта; экранируем куски отдельно, чтобы не ломать HTML-сущности
+  const re = new RegExp('(' + words.map(w => escRe(w).replace(/е/g, '[её]')).join('|') + ')', 'gi');
+  let out = '', last = 0, m;
+  while ((m = re.exec(text)) !== null){
+    if (!m[0]) { re.lastIndex++; continue; }
+    out += escHTML(text.slice(last, m.index)) + '<mark class="hl">' + escHTML(m[0]) + '</mark>';
+    last = m.index + m[0].length;
+  }
+  return out + escHTML(text.slice(last));
+}
+
+function searchEmptyHTML(){
+  return `
+  <div class="empty-state">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+    <div>Ничего не найдено по запросу<br><b style="color:var(--text)">«${escHTML(searchQuery.trim())}»</b><br>Попробуйте другое слово или выберите категорию</div>
+    <button type="button" class="es-btn" id="searchReset">Сбросить поиск</button>
+  </div>`;
+}
+
 function cardHTML(p, i){
   const imgs = (p.images && p.images.length) ? p.images : (p.image ? [p.image] : []);
   const hasMulti = imgs.length > 1;
@@ -773,7 +841,7 @@ function cardHTML(p, i){
         ` : ''}
         <div class="card-label">${p.category}</div>
       </div>
-      <div class="card-name">${p.name}</div>
+      <div class="card-name">${searchQuery ? highlight(p.name) : p.name}</div>
       <div class="card-price">${priceHTML(p)}</div>
     </div>
   `;
@@ -832,22 +900,61 @@ sortMenu.querySelectorAll('.sort-opt').forEach(opt=>{
   };
 });
 
-function renderGrid(){
+function renderGrid(instant){
   let list = activeCategory==='Все' ? PRODUCTS : PRODUCTS.filter(p=>p.category===activeCategory);
+  const searching = normText(searchQuery).length > 0;
+  if (searching) list = list.filter(matchesSearch);
   list = applySort(list);
-  grid.style.opacity = '0';
-  grid.style.transform = 'translateY(6px)';
-  setTimeout(()=>{
+  updateSearchMeta(list.length, searching);
+  const paint = () => {
     if (list.length===0){
-      grid.innerHTML = emptyStateHTML;
+      grid.innerHTML = searching ? searchEmptyHTML() : emptyStateHTML;
+      const rb = document.getElementById('searchReset');
+      if (rb) rb.onclick = () => { searchInput.value=''; setSearch(''); searchInput.focus(); };
     } else {
       grid.innerHTML = list.map((p,i) => cardHTML(p,i)).join('');
       attachCardHandlers(grid);
     }
     grid.style.opacity = '1';
     grid.style.transform = 'translateY(0)';
-  }, 140);
+  };
+  if (instant === true){ paint(); return; }
+  grid.style.opacity = '0';
+  grid.style.transform = 'translateY(6px)';
+  setTimeout(paint, 140);
 }
+
+// --- поиск: ввод, очистка, счётчик ---------------------------------------
+const searchInput = document.getElementById('searchInput');
+const searchClear = document.getElementById('searchClear');
+const searchMeta = document.getElementById('searchMeta');
+let searchTimer = null;
+
+function updateSearchMeta(count, searching){
+  if (!searching){ searchMeta.classList.remove('show'); searchMeta.innerHTML=''; return; }
+  const n = count % 10, nn = count % 100;
+  const word = (nn>=11 && nn<=14) ? 'товаров' : n===1 ? 'товар' : (n>=2 && n<=4) ? 'товара' : 'товаров';
+  searchMeta.innerHTML = count ? `Найдено: <b>${count}</b> ${word}` : '';
+  searchMeta.classList.toggle('show', count > 0);
+}
+
+function setSearch(q){
+  searchQuery = q;
+  searchClear.classList.toggle('show', q.length > 0);
+  renderGrid(true); // без fade-анимации, чтобы не мигало при наборе
+}
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const q = searchInput.value;
+  searchClear.classList.toggle('show', q.length > 0);
+  searchTimer = setTimeout(() => setSearch(q), 120);
+});
+searchInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter'){ e.preventDefault(); searchInput.blur(); } // прячем клавиатуру на телефоне
+  if (e.key === 'Escape'){ searchInput.value=''; setSearch(''); searchInput.blur(); }
+});
+searchClear.onclick = () => { searchInput.value=''; setSearch(''); searchInput.focus(); };
 
 function renderFavorites(){
   const favGrid = document.getElementById('favGrid');
@@ -1594,8 +1701,8 @@ function initTiltEffect() {
 
 // Override renderGrid to add reveals and tilt
 const originalRenderGrid = renderGrid;
-renderGrid = function() {
-  originalRenderGrid();
+renderGrid = function(instant) {
+  originalRenderGrid(instant);
   setTimeout(() => { observeReveals(); initTiltEffect(); }, 200);
 };
 
