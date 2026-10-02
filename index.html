@@ -50,10 +50,10 @@
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{margin:0;padding:0;}
-  html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;overflow-x:hidden;max-width:100%;}
+  html{-webkit-text-size-adjust:100%;overflow-x:hidden;overflow-x:clip;max-width:100%;}
   body{
     background:var(--bg);color:var(--text);font-family:var(--font-body),sans-serif;font-weight:400;
-    min-height:100vh;overscroll-behavior-y:none;position:relative;overflow-x:hidden;
+    min-height:100vh;min-height:100dvh;overscroll-behavior-y:none;position:relative;overflow-x:hidden;overflow-x:clip;width:100%;
   }
   body::before{
     content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
@@ -76,7 +76,7 @@
   ::-webkit-scrollbar-track{background:transparent;}
   ::-webkit-scrollbar-thumb{background:var(--line);border-radius:99px;}
   ::-webkit-scrollbar-thumb:hover{background:var(--muted-dim);}
-  #app{max-width:480px;margin:0 auto;overflow-x:hidden;width:100%;padding-bottom:calc(110px + var(--safe-b));position:relative;z-index:1;}
+  #app{max-width:480px;margin:0 auto;overflow-x:hidden;overflow-x:clip;width:100%;padding-bottom:calc(110px + var(--safe-b));position:relative;z-index:1;}
   @keyframes appIn{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
   header{
     position:sticky;top:0;z-index:20;
@@ -150,11 +150,11 @@
   .sort-opt.active{color:var(--accent);background:var(--accent-dim);}
   .sort-opt .chk{opacity:0;font-size:12px;transition:opacity .2s;}
   .sort-opt.active .chk{opacity:1;}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px 20px;}
-  .card{cursor:pointer;content-visibility:auto;contain-intrinsic-size:auto 300px;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:16px 20px;}
+  .card{cursor:pointer;min-width:0;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
   .grid.anim .card{animation:cardIn .35s var(--ease) both;}
   
-  .card-media{position:relative;aspect-ratio:3/4;border-radius:var(--border-radius-card);overflow:hidden;display:flex;align-items:flex-end;background-color:var(--bg-elev);isolation:isolate;contain:paint;transform:translateZ(0);-webkit-mask-image:-webkit-radial-gradient(white,black);border:1px solid var(--line);transition:transform .25s var(--ease);box-shadow:0 2px 10px rgba(0,0,0,.12);}
+  .card-media{position:relative;aspect-ratio:3/4;border-radius:var(--border-radius-card);overflow:hidden;display:flex;align-items:flex-end;background-color:var(--bg-elev);isolation:isolate;border:1px solid var(--line);transition:transform .25s var(--ease);box-shadow:0 2px 10px rgba(0,0,0,.12);}
   
   .card:active .card-media{transform:scale(.97);}
   .card-media::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 78%,rgba(120,60,84,.28) 100%);pointer-events:none;}
@@ -174,7 +174,7 @@
   .badge-sale{background:linear-gradient(135deg,rgba(214,69,95,.9),rgba(214,69,95,.9));color:#fff;border-color:rgba(214,69,95,.4);}
   .badge-instock{background:linear-gradient(135deg,rgba(95,168,117,.9),rgba(75,150,100,.9));color:#FFFFFF;border-color:rgba(95,168,117,.4);}
   @keyframes cardIn{from{opacity:0;transform:translateY(20px) scale(.96);}to{opacity:1;transform:translateY(0) scale(1);}}
-  .skeleton-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px 20px;}
+  .skeleton-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:16px 20px;}
   .skel-card-media{aspect-ratio:3/4;border-radius:var(--border-radius-card);background:linear-gradient(110deg,var(--bg-elev) 25%,var(--bg-elev-2) 50%,var(--bg-elev) 75%);background-size:300% 100%;animation:shimmer 2s ease-in-out infinite;}
   .skel-line{height:10px;border-radius:4px;margin-top:12px;background:linear-gradient(110deg,var(--bg-elev) 25%,var(--bg-elev-2) 50%,var(--bg-elev) 75%);background-size:300% 100%;animation:shimmer 2s ease-in-out infinite;width:70%;}
   .skel-line.short{width:45%;margin-top:7px;}
@@ -352,7 +352,7 @@
   .orders-skel .skel-line{width:100%;}
   .reveal{}
   
-  @media (hover:hover){
+  @media (hover:hover) and (pointer:fine){
     .card:hover .card-media{transform:scale(1.03);}
     .chip:hover:not(.active){color:var(--text);border-color:var(--muted-dim);}
     .card-like:hover:not(.active){border-color:var(--accent);}
